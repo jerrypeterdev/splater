@@ -1,0 +1,11 @@
+.gradle/
+.gradle-user/
+build/
+out/
+.idea/
+*.iml
+*.class
+credentials.properties
+start-test.bat
+PLUGIN-HUB-DRAFT.md
+SUBMISSION-REVIEW.md

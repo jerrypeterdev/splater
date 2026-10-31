@@ -1,0 +1,28 @@
+plugins { id 'java' }
+
+repositories {
+    maven {
+        url = 'https://repo.runelite.net'
+        content { includeGroupByRegex('net\\.runelite.*') }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly group: 'net.runelite', name: 'client', version: 'latest.release'
+    testImplementation group: 'net.runelite', name: 'client', version: 'latest.release'
+    testImplementation group: 'net.runelite', name: 'jshell', version: 'latest.release'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+group = 'com.partydamage'
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
+tasks.register('run', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.partydamage.PartyDamageLauncher'
+    jvmArgs '-ea'
+    args '--developer-mode', '--debug'
+}
