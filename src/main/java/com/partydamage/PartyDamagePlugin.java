@@ -37,7 +37,7 @@ import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.AsyncBufferedImage;
 
-@PluginDescriptor(name = "Splater", description = "A ranked party damage overlay", enabledByDefault = false)
+@PluginDescriptor(name = "Splater", description = "A ranked party damage overlay")
 public class PartyDamagePlugin extends Plugin
 {
     @Inject private Client client;
