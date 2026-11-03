@@ -43,7 +43,7 @@ class PartyDamageOverlay extends Overlay
         this.taken = taken;
         setPosition(taken ? OverlayPosition.TOP_RIGHT : OverlayPosition.TOP_LEFT);
         setResizable(true);
-        setMinimumSize(160);
+        setMinimumSize(32);
     }
 
     void loadEffectSprites()
