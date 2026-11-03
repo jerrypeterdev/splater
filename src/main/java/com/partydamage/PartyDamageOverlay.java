@@ -58,8 +58,8 @@ class PartyDamageOverlay extends Overlay
     {
         if (taken ? !plugin.showTakenOverlay() : !plugin.showOverlay()) return null;
         Map<String, Long> data = taken ? plugin.overallTaken().snapshot() : plugin.snapshot();
-        Map<String, List<SpecResult>> specs = taken ? java.util.Collections.emptyMap() : plugin.specSnapshot();
-        Map<String, Set<DamageEffect>> effects = taken ? plugin.overallTaken().effectSnapshot() : java.util.Collections.emptyMap();
+        Map<String, List<SpecResult>> specs = taken || !plugin.showSpecialAttacks() ? java.util.Collections.emptyMap() : plugin.specSnapshot();
+        Map<String, Set<DamageEffect>> effects = taken && plugin.showDamageEffects() ? plugin.overallTaken().effectSnapshot() : java.util.Collections.emptyMap();
         List<Map.Entry<String, Long>> rows = new ArrayList<>(data.entrySet());
         rows.sort(Comparator.<Map.Entry<String, Long>>comparingLong(Map.Entry::getValue).reversed().thenComparing(Map.Entry::getKey));
         long total = rows.stream().mapToLong(Map.Entry::getValue).sum();

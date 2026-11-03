@@ -6,11 +6,16 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Graphics;
+import java.awt.FlowLayout;
+import java.awt.image.BufferedImage;
+import java.awt.image.ColorConvertOp;
+import java.awt.color.ColorSpace;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -26,9 +31,15 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.JFormattedTextField;
 import javax.swing.JOptionPane;
 import javax.swing.Icon;
+import javax.swing.ImageIcon;
 import javax.swing.Timer;
 import javax.swing.plaf.basic.BasicSpinnerUI;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.callback.ClientThread;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SpriteManager;
+import net.runelite.api.gameval.SpriteID;
+import net.runelite.client.util.AsyncBufferedImage;
 
 class PartyDamagePanel extends PluginPanel
 {
@@ -37,6 +48,13 @@ class PartyDamagePanel extends PluginPanel
     private static final Color GOLD = new Color(235, 190, 75);
     private static final Color MUTED = new Color(170, 170, 170);
     private final PartyDamagePlugin plugin;
+    @Inject private ItemManager items;
+    @Inject private ClientThread clientThread;
+    @Inject private SpriteManager sprites;
+    private final Map<Integer, BufferedImage> specImages = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<Integer> loadingImages = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<DamageEffect, BufferedImage> effectImages = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<DamageEffect> loadingEffects = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final JPanel rows = column(INSET);
     private final JPanel overallRows = column(INSET);
     private final JPanel encounterRows = column(INSET);
@@ -124,22 +142,77 @@ class PartyDamagePanel extends PluginPanel
         content.add(Box.createVerticalStrut(12));
         addTakenSection(content, "Encounter damage taken", encounterTakenValue, encounterTakenDps, encounterTakenRows, plugin.encounterTaken());
         addDivider(content);
-        content.add(section("SETTINGS"));
+        JPanel settings = column(BACKGROUND);
+        settings.setVisible(false);
+        JButton settingsToggle = new JButton("SETTINGS  \u25b6");
+        settingsToggle.setForeground(GOLD); settingsToggle.setBackground(BACKGROUND);
+        settingsToggle.setFont(settingsToggle.getFont().deriveFont(Font.BOLD));
+        settingsToggle.setBorder(BorderFactory.createEmptyBorder());
+        settingsToggle.setHorizontalAlignment(JButton.LEFT);
+        settingsToggle.setAlignmentX(LEFT_ALIGNMENT);
+        settingsToggle.setFocusPainted(false);
+        settingsToggle.addActionListener(e -> {
+            boolean expanded = !settings.isVisible();
+            settings.setVisible(expanded);
+            settingsToggle.setText(expanded ? "SETTINGS  \u25bc" : "SETTINGS  \u25b6");
+            content.revalidate(); content.repaint();
+        });
+        content.add(settingsToggle);
+        content.add(settings);
         JCheckBox overlay = new JCheckBox("Show damage dealt overlay", config.showOverlay());
         overlay.setBackground(BACKGROUND); overlay.setForeground(Color.WHITE); overlay.setAlignmentX(LEFT_ALIGNMENT);
         overlay.setIcon(checkIcon(false)); overlay.setSelectedIcon(checkIcon(true));
-        overlay.addActionListener(e -> plugin.setShowOverlay(overlay.isSelected())); content.add(overlay);
+        overlay.addActionListener(e -> plugin.setShowOverlay(overlay.isSelected())); settings.add(overlay);
         JCheckBox takenOverlay = new JCheckBox("Show damage taken overlay", config.showTakenOverlay());
         takenOverlay.setBackground(BACKGROUND); takenOverlay.setForeground(Color.WHITE); takenOverlay.setAlignmentX(LEFT_ALIGNMENT);
         takenOverlay.setIcon(checkIcon(false)); takenOverlay.setSelectedIcon(checkIcon(true));
-        takenOverlay.addActionListener(e -> plugin.setShowTakenOverlay(takenOverlay.isSelected())); content.add(takenOverlay);
-        content.add(Box.createVerticalStrut(6));
+        takenOverlay.addActionListener(e -> plugin.setShowTakenOverlay(takenOverlay.isSelected())); settings.add(takenOverlay);
+        JCheckBox showSpecs = new JCheckBox("Overlay: special attacks", config.showSpecialAttacks());
+        showSpecs.setBackground(BACKGROUND); showSpecs.setForeground(Color.WHITE); showSpecs.setAlignmentX(LEFT_ALIGNMENT);
+        showSpecs.setIcon(checkIcon(false)); showSpecs.setSelectedIcon(checkIcon(true));
+        showSpecs.addActionListener(e -> { plugin.setShowSpecialAttacks(showSpecs.isSelected()); refresh(); });
+        settings.add(showSpecs);
+        JCheckBox sidebarSpecs = new JCheckBox("Sidebar: special attacks", config.showSidebarSpecialAttacks());
+        sidebarSpecs.setBackground(BACKGROUND); sidebarSpecs.setForeground(Color.WHITE); sidebarSpecs.setAlignmentX(LEFT_ALIGNMENT);
+        sidebarSpecs.setIcon(checkIcon(false)); sidebarSpecs.setSelectedIcon(checkIcon(true));
+        sidebarSpecs.addActionListener(e -> { plugin.setShowSidebarSpecialAttacks(sidebarSpecs.isSelected()); refresh(); });
+        settings.add(sidebarSpecs);
+        JCheckBox showEffects = new JCheckBox("Overlay: damage effects", config.showDamageEffects());
+        showEffects.setBackground(BACKGROUND); showEffects.setForeground(Color.WHITE); showEffects.setAlignmentX(LEFT_ALIGNMENT);
+        showEffects.setIcon(checkIcon(false)); showEffects.setSelectedIcon(checkIcon(true));
+        showEffects.addActionListener(e -> plugin.setShowDamageEffects(showEffects.isSelected()));
+        settings.add(showEffects);
+        JCheckBox sidebarEffects = new JCheckBox("Sidebar: damage effects", config.showSidebarDamageEffects());
+        sidebarEffects.setBackground(BACKGROUND); sidebarEffects.setForeground(Color.WHITE); sidebarEffects.setAlignmentX(LEFT_ALIGNMENT);
+        sidebarEffects.setIcon(checkIcon(false)); sidebarEffects.setSelectedIcon(checkIcon(true));
+        sidebarEffects.addActionListener(e -> { plugin.setShowSidebarDamageEffects(sidebarEffects.isSelected()); refresh(); });
+        settings.add(sidebarEffects);
+        settings.add(Box.createVerticalStrut(6));
         JPanel opacityRow = new JPanel(new BorderLayout(8, 0));
         opacityRow.setBackground(BACKGROUND); opacityRow.setAlignmentX(LEFT_ALIGNMENT);
         opacityRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         opacityRow.add(label("Background opacity (%)", MUTED), BorderLayout.CENTER);
         JSpinner opacity = new JSpinner(new SpinnerNumberModel(Math.max(0, Math.min(100, config.overlayOpacity())), 0, 100, 1));
-        opacity.setUI(new BasicSpinnerUI() {
+        opacity.setUI(spinnerUI());
+        opacity.setBackground(INSET);
+        opacity.setBorder(BorderFactory.createLineBorder(new Color(18, 18, 18)));
+        JFormattedTextField opacityField = ((JSpinner.DefaultEditor) opacity.getEditor()).getTextField();
+        opacityField.setBackground(INSET); opacityField.setForeground(Color.WHITE); opacityField.setCaretColor(Color.WHITE);
+        opacityField.setHorizontalAlignment(JFormattedTextField.RIGHT);
+        opacityField.setBorder(BorderFactory.createEmptyBorder(1, 4, 1, 3));
+        opacity.setPreferredSize(new Dimension(75, 24));
+        opacity.addChangeListener(e -> plugin.setOverlayOpacity((Integer) opacity.getValue()));
+        opacityRow.add(opacity, BorderLayout.EAST);
+        settings.add(opacityRow);
+        settings.add(Box.createVerticalStrut(6));
+        settings.add(sizeResetButton("Reset damage dealt size", false));
+        settings.add(Box.createVerticalStrut(4));
+        settings.add(sizeResetButton("Reset damage taken size", true));
+        timer = new Timer(1000, e -> refresh());
+    }
+    private static BasicSpinnerUI spinnerUI()
+    {
+        return new BasicSpinnerUI() {
             @Override protected java.awt.Component createNextButton() { return arrowButton(true); }
             @Override protected java.awt.Component createPreviousButton() { return arrowButton(false); }
             private JButton arrowButton(boolean up)
@@ -158,22 +231,7 @@ class PartyDamagePanel extends PluginPanel
                 if (up) installNextButtonListeners(button); else installPreviousButtonListeners(button);
                 return button;
             }
-        });
-        opacity.setBackground(INSET);
-        opacity.setBorder(BorderFactory.createLineBorder(new Color(18, 18, 18)));
-        JFormattedTextField opacityField = ((JSpinner.DefaultEditor) opacity.getEditor()).getTextField();
-        opacityField.setBackground(INSET); opacityField.setForeground(Color.WHITE); opacityField.setCaretColor(Color.WHITE);
-        opacityField.setHorizontalAlignment(JFormattedTextField.RIGHT);
-        opacityField.setBorder(BorderFactory.createEmptyBorder(1, 4, 1, 3));
-        opacity.setPreferredSize(new Dimension(75, 24));
-        opacity.addChangeListener(e -> plugin.setOverlayOpacity((Integer) opacity.getValue()));
-        opacityRow.add(opacity, BorderLayout.EAST);
-        content.add(opacityRow);
-        content.add(Box.createVerticalStrut(6));
-        content.add(sizeResetButton("Reset damage dealt size", false));
-        content.add(Box.createVerticalStrut(4));
-        content.add(sizeResetButton("Reset damage taken size", true));
-        timer = new Timer(1000, e -> refresh());
+        };
     }
     private static Icon checkIcon(boolean checked)
     {
@@ -292,7 +350,7 @@ class PartyDamagePanel extends PluginPanel
         for (Map.Entry<String, Long> entry : entries)
         {
             String name = entry.getKey();
-            JPanel row = new JPanel(new BorderLayout(8, 0)); row.setBackground(INSET);
+            JPanel row = new JPanel(new BorderLayout(8, 0)); row.setBackground(INSET); row.setAlignmentX(LEFT_ALIGNMENT);
             row.setBorder(BorderFactory.createEmptyBorder(4, 5, 4, 5));
             JButton picker = new JButton(new javax.swing.Icon() {
                 public int getIconWidth() { return 16; }
@@ -312,8 +370,76 @@ class PartyDamagePanel extends PluginPanel
             row.add(player, BorderLayout.CENTER);
             if (!coloursOnly) row.add(value, BorderLayout.EAST);
             row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26)); destination.add(row);
+            if ((destination == overallRows || destination == encounterRows) && plugin.showSidebarSpecialAttacks())
+            {
+                List<SpecResult> playerSpecs = (destination == encounterRows ? plugin.encounterSpecSnapshot() : plugin.specSnapshot()).get(name);
+                if (playerSpecs != null && !playerSpecs.isEmpty()) destination.add(specialRow(playerSpecs));
+            }
+            if (destination == takenRows && plugin.showSidebarDamageEffects())
+            {
+                Set<DamageEffect> effects = plugin.overallTaken().effectSnapshot().get(name);
+                if (effects != null && !effects.isEmpty()) destination.add(effectRow(effects));
+            }
         }
         destination.revalidate(); destination.repaint();
+    }
+    private JPanel specialRow(List<SpecResult> specs)
+    {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 1, 0));
+        row.setBackground(INSET); row.setAlignmentX(LEFT_ALIGNMENT);
+        row.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        for (SpecResult spec : specs)
+        {
+            BufferedImage image = specImages.get(spec.itemId);
+            if (image == null && items != null && clientThread != null && loadingImages.add(spec.itemId))
+            {
+                clientThread.invokeLater(() -> {
+                    AsyncBufferedImage loaded = items.getImage(spec.itemId);
+                    loaded.onLoaded(() -> { specImages.put(spec.itemId, loaded); loadingImages.remove(spec.itemId); });
+                });
+            }
+            JLabel icon = new JLabel();
+            icon.setPreferredSize(new Dimension(24, 24));
+            icon.setToolTipText(spec.damage < 0 ? "Special attack result unconfirmed" : "Special attack damage: " + spec.damage);
+            if (image != null)
+            {
+                BufferedImage display = spec.damage <= 0
+                    ? new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null).filter(image, null) : image;
+                icon.setIcon(new ImageIcon(display.getScaledInstance(24, 24, java.awt.Image.SCALE_SMOOTH)));
+            }
+            if (spec.damage < 0) { icon.setText("?"); icon.setForeground(Color.WHITE); icon.setHorizontalTextPosition(JLabel.LEFT); }
+            row.add(icon);
+        }
+        return row;
+    }
+    private JPanel effectRow(Set<DamageEffect> effects)
+    {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 1, 0));
+        row.setBackground(INSET); row.setAlignmentX(LEFT_ALIGNMENT);
+        row.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        for (DamageEffect effect : DamageEffect.values())
+        {
+            if (!effects.contains(effect)) continue;
+            int spriteId = effect == DamageEffect.POISON ? SpriteID.Hitmark.HITSPLAT_GREEN_POISON
+                : effect == DamageEffect.VENOM ? SpriteID.Hitmark.HITSPLAT_DARK_GREEN_VENOM
+                : effect == DamageEffect.BURN ? SpriteID.Hitmark.BURN_DAMAGE : -1;
+            BufferedImage image = effectImages.get(effect);
+            if (image == null && spriteId >= 0 && sprites != null && clientThread != null && loadingEffects.add(effect))
+            {
+                clientThread.invokeLater(() -> sprites.getSpriteAsync(spriteId, 0, loaded -> {
+                    effectImages.put(effect, loaded); loadingEffects.remove(effect);
+                }));
+            }
+            JLabel icon = new JLabel();
+            icon.setPreferredSize(new Dimension(22, 22));
+            icon.setToolTipText(effect.name().toLowerCase(Locale.ROOT));
+            if (image != null) icon.setIcon(new ImageIcon(image.getScaledInstance(20, 20, java.awt.Image.SCALE_SMOOTH)));
+            else { icon.setText(effect.symbol); icon.setForeground(effect.colour); }
+            row.add(icon);
+        }
+        return row;
     }
     private void chooseColour(String name)
     {

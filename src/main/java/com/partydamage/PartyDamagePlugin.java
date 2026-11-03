@@ -35,7 +35,7 @@ import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
 
-@PluginDescriptor(name = "Splater", description = "A ranked party damage overlay")
+@PluginDescriptor(name = "Splater", description = "The Ultimate Party Damage Tracker")
 public class PartyDamagePlugin extends Plugin
 {
     @Inject private Client client;
@@ -57,6 +57,7 @@ public class PartyDamagePlugin extends Plugin
     private final DamageTakenSeries overallTaken = new DamageTakenSeries();
     private final DamageTakenSeries encounterTaken = new DamageTakenSeries();
     private final Map<String, List<SpecResult>> specials = new HashMap<>();
+    private final Map<String, List<SpecResult>> encounterSpecials = new HashMap<>();
     private long startedNanos;
     private long lastHitNanos;
     private long encounterStartedNanos;
@@ -216,17 +217,28 @@ public class PartyDamagePlugin extends Plugin
             || event.itemId() <= 0 || event.itemId() >= 100000 || event.damage() < -1 || event.damage() > 10000) return;
         addSpec(event.name(), event.itemId(), event.damage());
     }
-    private synchronized void addSpec(String name, int itemId, int amount)
+    synchronized void addSpec(String name, int itemId, int amount)
     {
         damage.putIfAbsent(name, 0L);
-        List<SpecResult> list = specials.computeIfAbsent(name, k -> new ArrayList<>());
+        encounterDamage.putIfAbsent(name, 0L);
+        addSpecTo(specials, name, itemId, amount);
+        addSpecTo(encounterSpecials, name, itemId, amount);
+    }
+    private static void addSpecTo(Map<String, List<SpecResult>> destination, String name, int itemId, int amount)
+    {
+        List<SpecResult> list = destination.computeIfAbsent(name, k -> new ArrayList<>());
         list.add(new SpecResult(itemId, amount));
         if (list.size() > 8) list.remove(0);
     }
     synchronized Map<String, List<SpecResult>> specSnapshot()
     {
+        return copySpecs(specials);
+    }
+    synchronized Map<String, List<SpecResult>> encounterSpecSnapshot() { return copySpecs(encounterSpecials); }
+    private static Map<String, List<SpecResult>> copySpecs(Map<String, List<SpecResult>> source)
+    {
         Map<String, List<SpecResult>> copy = new HashMap<>();
-        specials.forEach((name, list) -> copy.put(name, new ArrayList<>(list)));
+        source.forEach((name, list) -> copy.put(name, new ArrayList<>(list)));
         return copy;
     }
 
@@ -254,7 +266,7 @@ public class PartyDamagePlugin extends Plugin
     }
 
     synchronized void reset() { damage.clear(); specials.clear(); startedNanos = 0; lastHitNanos = 0; }
-    synchronized void resetEncounter() { encounterDamage.clear(); encounterStartedNanos = 0; encounterLastHitNanos = 0; }
+    synchronized void resetEncounter() { encounterDamage.clear(); encounterSpecials.clear(); encounterStartedNanos = 0; encounterLastHitNanos = 0; }
     private synchronized void resetAll() { reset(); resetEncounter(); overallTaken.reset(); encounterTaken.reset(); }
     synchronized Map<String, Long> snapshot() { return new HashMap<>(damage); }
     synchronized Map<String, Long> encounterSnapshot() { return new HashMap<>(encounterDamage); }
@@ -271,6 +283,14 @@ public class PartyDamagePlugin extends Plugin
     void setShowTakenOverlay(boolean show) { configManager.setConfiguration("partydamagemeter", "showTakenOverlay", show); }
     int overlayOpacity() { return Math.max(0, Math.min(100, config.overlayOpacity())); }
     void setOverlayOpacity(int value) { configManager.setConfiguration("partydamagemeter", "overlayOpacity", Math.max(0, Math.min(100, value))); }
+    boolean showSpecialAttacks() { return config.showSpecialAttacks(); }
+    void setShowSpecialAttacks(boolean show) { configManager.setConfiguration("partydamagemeter", "showSpecialAttacks", show); }
+    boolean showDamageEffects() { return config.showDamageEffects(); }
+    void setShowDamageEffects(boolean show) { configManager.setConfiguration("partydamagemeter", "showDamageEffects", show); }
+    boolean showSidebarSpecialAttacks() { return config.showSidebarSpecialAttacks(); }
+    void setShowSidebarSpecialAttacks(boolean show) { configManager.setConfiguration("partydamagemeter", "showSidebarSpecialAttacks", show); }
+    boolean showSidebarDamageEffects() { return config.showSidebarDamageEffects(); }
+    void setShowSidebarDamageEffects(boolean show) { configManager.setConfiguration("partydamagemeter", "showSidebarDamageEffects", show); }
     void resetOverlaySize(boolean taken)
     {
         clientThread.invokeLater(() -> {
