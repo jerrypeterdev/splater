@@ -47,6 +47,7 @@ final class SpecialAttackTracker
 
     void energyChanged(VarbitChanged event)
     {
+        if (plugin.isPvpArea()) { reset(); return; }
         if (event.getVarpId() != VarPlayerID.SA_ENERGY) return;
         int energy = event.getValue();
         int previous = lastEnergy;
@@ -56,12 +57,12 @@ final class SpecialAttackTracker
         clientThread.invokeLater(() -> {
             Player player = client.getLocalPlayer();
             ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
-            if (player == null || equipment == null) return;
+            if (player == null || equipment == null || plugin.isPvpArea()) return;
+            if (!(player.getInteracting() instanceof NPC)) { target = null; return; }
             Item item = equipment.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
             if (item == null || item.getId() <= 0) return;
             if (target != null) plugin.recordLocalSpec(weapon, -1);
-            if (!supported(item.getId()) || (!(player.getInteracting() instanceof NPC)
-                && !(player.getInteracting() instanceof Player)))
+            if (!supported(item.getId()))
             {
                 target = null;
                 plugin.recordLocalSpec(item.getId(), -1);
@@ -77,7 +78,7 @@ final class SpecialAttackTracker
 
     void hit(HitsplatApplied event)
     {
-        if (!event.getHitsplat().isMine()) return;
+        if (!PartyDamagePlugin.isNpcDamage(event.getActor(), event.getHitsplat().isMine())) return;
         int tick = client.getTickCount();
         recentHits.add(new ObservedHit(event.getActor(), tick, event.getHitsplat().getAmount()));
         recentHits.removeIf(hit -> hit.tick < tick - 4);
@@ -85,6 +86,7 @@ final class SpecialAttackTracker
 
     void tick(GameTick event)
     {
+        if (plugin.isPvpArea()) { reset(); return; }
         if (lastEnergy < 0) lastEnergy = client.getVarpValue(VarPlayerID.SA_ENERGY);
         int tick = client.getTickCount();
         if (target == null || tick <= expectedTick + 1) return;

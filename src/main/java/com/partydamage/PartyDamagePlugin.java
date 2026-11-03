@@ -18,6 +18,8 @@ import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.HitsplatID;
+import net.runelite.api.WorldType;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.VarbitChanged;
@@ -65,11 +67,13 @@ public class PartyDamagePlugin extends Plugin
     private long encounterStartedNanos;
     private long encounterLastHitNanos;
     private volatile String joinedPassphrase;
+    private volatile boolean pvpBlocked = true;
 
     @Provides PartyDamageConfig provideConfig(ConfigManager manager) { return manager.getConfig(PartyDamageConfig.class); }
 
     @Override protected void startUp()
     {
+        pvpBlocked = true;
         resetAll();
         wsClient.registerMessage(PartyDamageHitMessage.class);
         wsClient.registerMessage(PartyDamageSpecMessage.class);
@@ -150,6 +154,7 @@ public class PartyDamagePlugin extends Plugin
 
     @Subscribe public void onHitsplatApplied(HitsplatApplied event)
     {
+        if (isPvpArea()) return;
         specTracker.hit(event);
         Player localPlayer = client.getLocalPlayer();
         if (localPlayer != null && event.getActor() == localPlayer && localPlayer.getName() != null
@@ -162,8 +167,7 @@ public class PartyDamagePlugin extends Plugin
             if (hasJoinedGroup() && party.getLocalMember() != null)
                 party.send(new PartyDamageTakenMessage(name, amount, effect == null ? 0 : effect.code));
         }
-        if (!(event.getActor() instanceof NPC) && !(event.getActor() instanceof Player)) return;
-        if (event.getActor() == localPlayer || !event.getHitsplat().isMine()) return;
+        if (!isNpcDamage(event.getActor(), event.getHitsplat().isMine())) return;
         Player player = client.getLocalPlayer();
         if (player == null || player.getName() == null) return;
         String name = player.getName();
@@ -171,6 +175,19 @@ public class PartyDamagePlugin extends Plugin
         add(name, amount);
         if (hasJoinedGroup() && party.getLocalMember() != null)
             party.send(new PartyDamageHitMessage(name, amount));
+    }
+
+    static boolean isNpcDamage(net.runelite.api.Actor actor, boolean mine)
+    {
+        return actor instanceof NPC && mine;
+    }
+
+    boolean isPvpArea()
+    {
+        java.util.Set<WorldType> types = client.getWorldType();
+        return client.getVarbitValue(VarbitID.PVP_AREA_CLIENT) != 0 || types == null
+            || WorldType.isPvpWorld(types) || types.contains(WorldType.BOUNTY)
+            || types.contains(WorldType.PVP_ARENA) || types.contains(WorldType.LAST_MAN_STANDING);
     }
 
     private static boolean isDamageTaken(Hitsplat hit)
@@ -182,6 +199,7 @@ public class PartyDamagePlugin extends Plugin
 
     @Subscribe public void onPartyDamageTakenMessage(PartyDamageTakenMessage event)
     {
+        if (pvpBlocked || event.version() != 1) return;
         PartyMember local = party.getLocalMember();
         if (!hasJoinedGroup() || local == null || local.getMemberId() == event.getMemberId() || party.getMemberById(event.getMemberId()) == null) return;
         if (event.name() == null || event.name().isEmpty() || event.name().length() > 12
@@ -196,7 +214,13 @@ public class PartyDamagePlugin extends Plugin
     }
 
     @Subscribe public void onVarbitChanged(VarbitChanged event) { specTracker.energyChanged(event); }
-    @Subscribe public void onGameTick(GameTick event) { specTracker.tick(event); }
+    @Subscribe public void onGameTick(GameTick event)
+    {
+        boolean blocked = isPvpArea();
+        if (blocked && !pvpBlocked) resetAll();
+        pvpBlocked = blocked;
+        specTracker.tick(event);
+    }
 
     void recordLocalSpec(int itemId, int amount)
     {
@@ -209,6 +233,7 @@ public class PartyDamagePlugin extends Plugin
 
     @Subscribe public void onPartyDamageSpecMessage(PartyDamageSpecMessage event)
     {
+        if (pvpBlocked || event.version() != 1) return;
         PartyMember local = party.getLocalMember();
         if (!hasJoinedGroup() || local == null || local.getMemberId() == event.getMemberId() || party.getMemberById(event.getMemberId()) == null) return;
         if (event.name() == null || event.name().isEmpty() || event.name().length() > 12
@@ -231,6 +256,7 @@ public class PartyDamagePlugin extends Plugin
 
     @Subscribe public void onPartyDamageHitMessage(PartyDamageHitMessage event)
     {
+        if (pvpBlocked || event.version() != 1) return;
         PartyMember local = party.getLocalMember();
         if (!hasJoinedGroup() || local == null || local.getMemberId() == event.getMemberId()) return;
         PartyMember sender = party.getMemberById(event.getMemberId());
