@@ -5,8 +5,6 @@ import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
 import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.BasicStroke;
 import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -20,7 +18,6 @@ import net.runelite.api.Hitsplat;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.WorldType;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.api.gameval.ItemID;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.GameTick;
@@ -36,8 +33,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.util.AsyncBufferedImage;
+import net.runelite.client.util.ImageUtil;
 
 @PluginDescriptor(name = "Splater", description = "A ranked party damage overlay")
 public class PartyDamagePlugin extends Plugin
@@ -53,7 +49,6 @@ public class PartyDamagePlugin extends Plugin
     @Inject private PartyDamagePanel panel;
     @Inject private ClientToolbar toolbar;
     @Inject private ConfigManager configManager;
-    @Inject private ItemManager itemManager;
     @Inject private SpecialAttackTracker specTracker;
     private NavigationButton navigation;
 
@@ -82,28 +77,9 @@ public class PartyDamagePlugin extends Plugin
         overlays.add(overlay);
         overlays.add(takenOverlay);
         takenOverlay.loadEffectSprites();
-        BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = icon.createGraphics();
-        graphics.setColor(new Color(130, 89, 51));
-        graphics.setStroke(new BasicStroke(3));
-        graphics.drawLine(3, 13, 11, 5);
-        graphics.setColor(new Color(190, 43, 34));
-        graphics.fillRect(7, 1, 8, 5);
-        graphics.dispose();
+        BufferedImage icon = ImageUtil.loadImageResource(PartyDamagePlugin.class, "sidebar-icon.png");
         navigation = NavigationButton.builder().tooltip("Splater").icon(icon).panel(panel).build();
         toolbar.addNavigation(navigation);
-        NavigationButton originalNavigation = navigation;
-        AsyncBufferedImage weaponIcon = itemManager.getImage(ItemID.DRAGON_WARHAMMER);
-        weaponIcon.onLoaded(() -> SwingUtilities.invokeLater(() -> {
-            if (navigation != originalNavigation) return;
-            BufferedImage scaled = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = scaled.createGraphics();
-            g.drawImage(weaponIcon, 0, 0, 16, 16, null);
-            g.dispose();
-            toolbar.removeNavigation(originalNavigation);
-            navigation = NavigationButton.builder().tooltip("Splater").icon(scaled).panel(panel).build();
-            toolbar.addNavigation(navigation);
-        }));
         SwingUtilities.invokeLater(panel::start);
     }
     @Override protected void shutDown()
