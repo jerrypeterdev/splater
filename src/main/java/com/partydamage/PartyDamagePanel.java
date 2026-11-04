@@ -8,8 +8,6 @@ import java.awt.GridLayout;
 import java.awt.Graphics;
 import java.awt.FlowLayout;
 import java.awt.image.BufferedImage;
-import java.awt.image.ColorConvertOp;
-import java.awt.color.ColorSpace;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -36,10 +34,8 @@ import javax.swing.Timer;
 import javax.swing.plaf.basic.BasicSpinnerUI;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.api.gameval.SpriteID;
-import net.runelite.client.util.AsyncBufferedImage;
 
 class PartyDamagePanel extends PluginPanel
 {
@@ -48,11 +44,9 @@ class PartyDamagePanel extends PluginPanel
     private static final Color GOLD = new Color(235, 190, 75);
     private static final Color MUTED = new Color(170, 170, 170);
     private final PartyDamagePlugin plugin;
-    @Inject private ItemManager items;
+    @Inject private SpecialIconCache icons;
     @Inject private ClientThread clientThread;
     @Inject private SpriteManager sprites;
-    private final Map<Integer, BufferedImage> specImages = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.Set<Integer> loadingImages = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Map<DamageEffect, BufferedImage> effectImages = new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<DamageEffect> loadingEffects = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final JPanel rows = column(INSET);
@@ -385,32 +379,33 @@ class PartyDamagePanel extends PluginPanel
     }
     private JPanel specialRow(List<SpecResult> specs)
     {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 1, 0));
+        JPanel row = new JPanel(new java.awt.GridLayout(1, 8));
         row.setBackground(INSET); row.setAlignmentX(LEFT_ALIGNMENT);
         row.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
         for (SpecResult spec : specs)
         {
-            BufferedImage image = specImages.get(spec.itemId);
-            if (image == null && items != null && clientThread != null && loadingImages.add(spec.itemId))
-            {
-                clientThread.invokeLater(() -> {
-                    AsyncBufferedImage loaded = items.getImage(spec.itemId);
-                    loaded.onLoaded(() -> { specImages.put(spec.itemId, loaded); loadingImages.remove(spec.itemId); });
-                });
-            }
+            if (row.getComponentCount() == 8) break;
+            BufferedImage image = icons == null ? null : icons.get(spec.itemId, spec.isGrey());
             JLabel icon = new JLabel();
             icon.setPreferredSize(new Dimension(24, 24));
-            icon.setToolTipText(spec.damage < 0 ? "Special attack result unconfirmed" : "Special attack damage: " + spec.damage);
-            if (image != null)
-            {
-                BufferedImage display = spec.damage <= 0
-                    ? new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null).filter(image, null) : image;
-                icon.setIcon(new ImageIcon(display.getScaledInstance(24, 24, java.awt.Image.SCALE_SMOOTH)));
-            }
-            if (spec.damage < 0) { icon.setText("?"); icon.setForeground(Color.WHITE); icon.setHorizontalTextPosition(JLabel.LEFT); }
+            icon.setToolTipText(spec.tooltip());
+            icon.setIcon(new Icon() {
+                public int getIconWidth() { return 24; }
+                public int getIconHeight() { return 24; }
+                public void paintIcon(java.awt.Component c, Graphics g, int x, int y)
+                {
+                    if (image != null) g.drawImage(image, x, y, null);
+                    if (spec.isUnknown())
+                    {
+                        g.setColor(Color.BLACK); g.drawString("?", x + 17, y + 23);
+                        g.setColor(Color.WHITE); g.drawString("?", x + 16, y + 22);
+                    }
+                }
+            });
             row.add(icon);
         }
+        while (row.getComponentCount() < 8) row.add(new JLabel());
         return row;
     }
     private JPanel effectRow(Set<DamageEffect> effects)

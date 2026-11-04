@@ -33,7 +33,7 @@ Hold **Alt** to move or resize either overlay. In the sidebar, click a coloured 
 
 Splater counts supported NPC hitsplats from participating players, including hits on adds. Tracking is paused in the Wilderness and in recognised PvP areas and worlds. Damage from before joining or reconnecting isn't recovered, and unusual mechanics may not be recorded. Percentages are shares of recorded group damage.
 
-Special-attack tracking is experimental. A coloured icon represents recorded positive damage; a grey icon represents a recorded zero. A question mark means the result or weapon couldn't be confirmed, not necessarily a miss. Damage-effect indicators show that an effect caused damage, not whether it is currently active.
+Special-attack tracking is experimental. A coloured icon usually represents recorded positive damage; a grey icon represents a recorded zero. A question mark means the result or weapon couldn't be confirmed, not necessarily a miss. The scorching bow is an exception: its coloured icon shows that the special was used, regardless of arrow damage. Damage-effect indicators show that an effect caused damage, not whether it is currently active.
 
 ## Feedback
 

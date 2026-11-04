@@ -8,6 +8,7 @@ import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collections;
 import javax.swing.SwingUtilities;
 import javax.inject.Inject;
 import com.google.inject.Provides;
@@ -25,6 +26,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.PartyChanged;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.party.PartyMember;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.party.WSClient;
@@ -58,6 +60,13 @@ public class PartyDamagePlugin extends Plugin
     private final DamageTakenSeries encounterTaken = new DamageTakenSeries();
     private final Map<String, List<SpecResult>> specials = new HashMap<>();
     private final Map<String, List<SpecResult>> encounterSpecials = new HashMap<>();
+    private Map<String, Long> damageView;
+    private Map<String, Long> encounterDamageView;
+    private Map<String, List<SpecResult>> specialsView;
+    private Map<String, List<SpecResult>> encounterSpecialsView;
+    private final Map<String, Color> playerColours = Collections.synchronizedMap(new java.util.LinkedHashMap<String, Color>(32, .75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Color> eldest) { return size() > 128; }
+    });
     private long startedNanos;
     private long lastHitNanos;
     private long encounterStartedNanos;
@@ -70,6 +79,7 @@ public class PartyDamagePlugin extends Plugin
     @Override protected void startUp()
     {
         pvpBlocked = true;
+        playerColours.clear();
         resetAll();
         wsClient.registerMessage(PartyDamageHitMessage.class);
         wsClient.registerMessage(PartyDamageSpecMessage.class);
@@ -128,6 +138,10 @@ public class PartyDamagePlugin extends Plugin
     }
 
     @Subscribe public void onPartyChanged(PartyChanged event) { resetAll(); }
+    @Subscribe public void onConfigChanged(ConfigChanged event)
+    {
+        if ("partydamagecolors".equals(event.getGroup())) playerColours.clear();
+    }
 
     @Subscribe public void onHitsplatApplied(HitsplatApplied event)
     {
@@ -223,6 +237,7 @@ public class PartyDamagePlugin extends Plugin
         encounterDamage.putIfAbsent(name, 0L);
         addSpecTo(specials, name, itemId, amount);
         addSpecTo(encounterSpecials, name, itemId, amount);
+        damageView = null; encounterDamageView = null; specialsView = null; encounterSpecialsView = null;
     }
     private static void addSpecTo(Map<String, List<SpecResult>> destination, String name, int itemId, int amount)
     {
@@ -232,14 +247,19 @@ public class PartyDamagePlugin extends Plugin
     }
     synchronized Map<String, List<SpecResult>> specSnapshot()
     {
-        return copySpecs(specials);
+        if (specialsView == null) specialsView = copySpecs(specials);
+        return specialsView;
     }
-    synchronized Map<String, List<SpecResult>> encounterSpecSnapshot() { return copySpecs(encounterSpecials); }
+    synchronized Map<String, List<SpecResult>> encounterSpecSnapshot()
+    {
+        if (encounterSpecialsView == null) encounterSpecialsView = copySpecs(encounterSpecials);
+        return encounterSpecialsView;
+    }
     private static Map<String, List<SpecResult>> copySpecs(Map<String, List<SpecResult>> source)
     {
         Map<String, List<SpecResult>> copy = new HashMap<>();
-        source.forEach((name, list) -> copy.put(name, new ArrayList<>(list)));
-        return copy;
+        source.forEach((name, list) -> copy.put(name, Collections.unmodifiableList(new ArrayList<>(list))));
+        return Collections.unmodifiableMap(copy);
     }
 
     @Subscribe public void onPartyDamageHitMessage(PartyDamageHitMessage event)
@@ -261,15 +281,24 @@ public class PartyDamagePlugin extends Plugin
         lastHitNanos = now;
         damage.merge(name, (long) hit, Long::sum);
         encounterDamage.merge(name, (long) hit, Long::sum);
+        damageView = null; encounterDamageView = null;
         if (encounterStartedNanos == 0) encounterStartedNanos = now;
         encounterLastHitNanos = now;
     }
 
-    synchronized void reset() { damage.clear(); specials.clear(); startedNanos = 0; lastHitNanos = 0; }
-    synchronized void resetEncounter() { encounterDamage.clear(); encounterSpecials.clear(); encounterStartedNanos = 0; encounterLastHitNanos = 0; }
+    synchronized void reset() { damage.clear(); specials.clear(); damageView = null; specialsView = null; startedNanos = 0; lastHitNanos = 0; }
+    synchronized void resetEncounter() { encounterDamage.clear(); encounterSpecials.clear(); encounterDamageView = null; encounterSpecialsView = null; encounterStartedNanos = 0; encounterLastHitNanos = 0; }
     private synchronized void resetAll() { reset(); resetEncounter(); overallTaken.reset(); encounterTaken.reset(); }
-    synchronized Map<String, Long> snapshot() { return new HashMap<>(damage); }
-    synchronized Map<String, Long> encounterSnapshot() { return new HashMap<>(encounterDamage); }
+    synchronized Map<String, Long> snapshot()
+    {
+        if (damageView == null) damageView = Collections.unmodifiableMap(new HashMap<>(damage));
+        return damageView;
+    }
+    synchronized Map<String, Long> encounterSnapshot()
+    {
+        if (encounterDamageView == null) encounterDamageView = Collections.unmodifiableMap(new HashMap<>(encounterDamage));
+        return encounterDamageView;
+    }
     String savedGroupCode()
     {
         String saved = configManager.getConfiguration("partydamagemeter", "passphrase");
@@ -301,17 +330,27 @@ public class PartyDamagePlugin extends Plugin
     }
     Color colourFor(String name)
     {
+        Color cached = playerColours.get(name);
+        if (cached != null) return cached;
         String stored = configManager.getConfiguration("partydamagecolors", colourKey(name));
         if (stored != null)
         {
-            try { return new Color(Integer.parseInt(stored), true); }
+            try
+            {
+                Color colour = new Color(Integer.parseInt(stored), true);
+                playerColours.put(name, colour);
+                return colour;
+            }
             catch (NumberFormatException ignored) { }
         }
-        return Color.getHSBColor((name.toLowerCase(java.util.Locale.ROOT).hashCode() & 0xffff) / 65536f, .52f, .65f);
+        Color colour = Color.getHSBColor((name.toLowerCase(java.util.Locale.ROOT).hashCode() & 0xffff) / 65536f, .52f, .65f);
+        playerColours.put(name, colour);
+        return colour;
     }
     void setColour(String name, Color color)
     {
         configManager.setConfiguration("partydamagecolors", colourKey(name), Integer.toString(color.getRGB()));
+        playerColours.clear();
     }
     private String colourKey(String name)
     {
